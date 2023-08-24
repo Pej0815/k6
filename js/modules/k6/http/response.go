@@ -141,6 +141,7 @@ func (res *Response) SubmitForm(args ...goja.Value) (*Response, error) {
 	submitSelector := "[type=\"submit\"]"
 	var fields map[string]goja.Value
 	requestParams := goja.Null()
+	useSubmitSelector := false
 	if len(args) > 0 {
 		params := args[0].ToObject(rt)
 		for _, k := range params.Keys() {
@@ -149,6 +150,7 @@ func (res *Response) SubmitForm(args ...goja.Value) (*Response, error) {
 				formSelector = params.Get(k).String()
 			case "submitSelector":
 				submitSelector = params.Get(k).String()
+				useSubmitSelector = true
 			case "fields":
 				if rt.ExportTo(params.Get(k), &fields) != nil {
 					fields = nil
@@ -178,7 +180,28 @@ func (res *Response) SubmitForm(args ...goja.Value) (*Response, error) {
 		common.Throw(rt, err)
 	}
 
-	actionAttr := form.Attr("action")
+	// Set the body based on the form values
+	values := form.SerializeObject()
+
+	// Set the name + value of the submit button
+	submit := form.Find(submitSelector)
+	submitName := submit.Attr("name")
+	submitValue := submit.Val()
+	if submitName != goja.Undefined() && submitValue != goja.Undefined() {
+		values[submitName.String()] = submitValue
+	}
+
+	var actionAttr goja.Value
+	var submitAction goja.Value
+	if useSubmitSelector {
+		submitAction = submit.Attr("formaction")
+	}
+	if useSubmitSelector && submitAction != nil {
+		actionAttr = submitAction
+	} else {
+		actionAttr = form.Attr("action")
+	}
+
 	var requestURL *url.URL
 	if actionAttr == goja.Undefined() {
 		// Use the url of the response if no action is set
@@ -189,17 +212,6 @@ func (res *Response) SubmitForm(args ...goja.Value) (*Response, error) {
 			common.Throw(rt, err)
 		}
 		requestURL = responseURL.ResolveReference(actionURL)
-	}
-
-	// Set the body based on the form values
-	values := form.SerializeObject()
-
-	// Set the name + value of the submit button
-	submit := form.Find(submitSelector)
-	submitName := submit.Attr("name")
-	submitValue := submit.Val()
-	if submitName != goja.Undefined() && submitValue != goja.Undefined() {
-		values[submitName.String()] = submitValue
 	}
 
 	// Set the values supplied in the arguments, overriding automatically set values

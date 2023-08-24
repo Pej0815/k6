@@ -12,6 +12,38 @@ import (
 	"go.k6.io/k6/metrics"
 )
 
+const testSubmitFormHTML = `
+<html>
+	<head>
+		<title>This is the title</title>
+	</head>
+	<body>	
+		<form id="submitFormActionPost" method="post" action="/formPost">
+		  <input name="custname" value="post"/>
+		  <input type="submit" value="a" formaction="/post/a" />
+		  <input type="submit" value="b" formaction="/post/b" />
+		  <input type="submit" value="noFormAction" />
+		</form>
+
+		<form id="submitFormActionGet" action="/formGet/B">
+		  <input name="custname"  value="get"/>
+		  <input type="submit" value="a" formaction="/get/a" />
+		  <input type="submit" value="b" formaction="/get/b" />
+		  <input type="submit" value="noFormAction" />
+		</form>
+
+		<form id="submitFormNoAction" >
+		  <input name="custname"  value="no action"/>
+		  <input type="submit" value="a" formaction="/getNoAction/a" />
+		  <input type="submit" value="b" formaction="/getNoAction/b" />
+		  <input type="submit" value="noFormAction" />
+		</form>
+		
+		<textarea name="textarea" multiple>Lorem ipsum dolor sit amet</textarea>
+	</body>
+</html>
+`
+
 const testGetFormHTML = `
 <html>
 <head>
@@ -103,8 +135,17 @@ func invalidJSONHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
+func submitFormHandler(w http.ResponseWriter, r *http.Request) {
+	body := []byte(testSubmitFormHTML)	
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
+}
+
 //nolint:paralleltest
 func TestResponse(t *testing.T) {
+	t.Fatal("Hellas Anta")
+	
 	ts := newTestCase(t)
 	tb := ts.tb
 	samples := ts.samples
@@ -116,8 +157,9 @@ func TestResponse(t *testing.T) {
 	tb.Mux.HandleFunc("/myforms/get", myFormHandler)
 	tb.Mux.HandleFunc("/json", jsonHandler)
 	tb.Mux.HandleFunc("/invalidjson", invalidJSONHandler)
+	tb.Mux.HandleFunc("/submitForm", submitFormHandler)
 
-	t.Run("Html", func(t *testing.T) {
+	t.Run("Html", func(t *testing.T) {	
 		_, err := rt.RunString(sr(`
 			var res = http.request("GET", "HTTPBIN_URL/html");
 			if (res.status != 200) { throw new Error("wrong status: " + res.status); }
@@ -345,6 +387,16 @@ func TestResponse(t *testing.T) {
 			`))
 			require.NoError(t, err)
 			assertRequestMetricsEmitted(t, metrics.GetBufferedSamples(samples), "GET", sr("HTTPBIN_URL/myforms/get"), 200, "")
+		})
+		
+		t.Run("pejSubmitFormPost", func(t *testing.T) {
+			_, err := rt.RunString(sr(`
+				var res = http.request("GET", "HTTPBIN_URL/submitForm");
+				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
+				res.submitForm({ formSelector: "[id=\"submitFormActionPost\"]", submitSelector: "[value="b"]" })
+			`))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), sr("no form found for selector '#doesNotExist' in response 'HTTPBIN_URL/forms/post'"))
 		})
 	})
 
