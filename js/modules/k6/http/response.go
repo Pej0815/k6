@@ -193,11 +193,22 @@ func (res *Response) SubmitForm(args ...goja.Value) (*Response, error) {
 
 	var actionAttr goja.Value
 	var submitAction goja.Value
+	var submitMethod goja.Value
 	if useSubmitSelector {
 		submitAction = submit.Attr("formaction")
+		submitMethod = submit.Attr("formmethod")
 	}
-	if useSubmitSelector && submitAction != nil {
-		actionAttr = submitAction
+
+	if useSubmitSelector {
+		if submitAction != nil && submitAction != goja.Undefined() {
+			actionAttr = submitAction
+		}
+		if submitMethod != nil && submitMethod != goja.Undefined() {
+			ms := submitMethod.String()
+			if ms != "" {
+				requestMethod = ms
+			}
+		}
 	} else {
 		actionAttr = form.Attr("action")
 	}
@@ -227,6 +238,7 @@ func (res *Response) SubmitForm(args ...goja.Value) (*Response, error) {
 		requestURL.RawQuery = q.Encode()
 		return res.client.Request(requestMethod, rt.ToValue(requestURL.String()), goja.Null(), requestParams)
 	}
+
 	return res.client.Request(
 		requestMethod, rt.ToValue(requestURL.String()),
 		rt.ToValue(values), requestParams,

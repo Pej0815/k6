@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"testing"
@@ -18,28 +19,42 @@ const testSubmitFormHTML = `
 		<title>This is the title</title>
 	</head>
 	<body>	
-		<form id="submitFormActionPost" method="post" action="/formPost">
+		<form id="submitFormActionPost" method="post" action="/submitFormPost">
 		  <input name="custname" value="post"/>
-		  <input type="submit" value="a" formaction="/post/a" />
-		  <input type="submit" value="b" formaction="/post/b" />
+		  <input type="submit" value="a" formaction="/submitForm/result/post/a" />
+		  <input type="submit" value="b" formaction="/submitForm/result/post/b" formmethod="get"/>
 		  <input type="submit" value="noFormAction" />
 		</form>
 
-		<form id="submitFormActionGet" action="/formGet/B">
+		<form id="submitFormActionGet" action="/submitFormGet">
 		  <input name="custname"  value="get"/>
-		  <input type="submit" value="a" formaction="/get/a" />
-		  <input type="submit" value="b" formaction="/get/b" />
+		  <input type="submit" value="a" formaction="/submitForm/result/get/a" />
+		  <input type="submit" value="b" formaction="/submitForm/result/get/b" formmethod="post" />
 		  <input type="submit" value="noFormAction" />
 		</form>
 
-		<form id="submitFormNoAction" >
-		  <input name="custname"  value="no action"/>
-		  <input type="submit" value="a" formaction="/getNoAction/a" />
-		  <input type="submit" value="b" formaction="/getNoAction/b" />
+		<form id="submitFormNoAction">
+		  <input name="custname"  value="noAction"/>
+		  <input type="submit" value="a" formaction="/submitForm/result/getNoAction/a" />
+		  <input type="submit" value="b" formaction="/submitForm/result/getNoAction/b" formmethod="post" />
 		  <input type="submit" value="noFormAction" />
 		</form>
 		
 		<textarea name="textarea" multiple>Lorem ipsum dolor sit amet</textarea>
+	</body>
+</html>
+`
+
+const testSubmitFormResultHTML = `
+<html>
+	<requestBody>
+#requestBody#
+	</requestBody>
+	<head>
+		<title>formAction result</title>
+	</head>
+	<body>
+		<h1>formAction result</h1
 	</body>
 </html>
 `
@@ -136,16 +151,31 @@ func invalidJSONHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func submitFormHandler(w http.ResponseWriter, r *http.Request) {
-	body := []byte(testSubmitFormHTML)	
+	body := []byte(testSubmitFormHTML)
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
 }
 
+func submitFormResultHandler(w http.ResponseWriter, r *http.Request) {
+	body := []byte(testSubmitFormResultHTML)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
+}
+
+func submitFormPostResultHandler(w http.ResponseWriter, r *http.Request) {
+	b, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		b = []byte("#cannotReadBody#")
+	}
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(b)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(b)
+}
+
 //nolint:paralleltest
 func TestResponse(t *testing.T) {
-	t.Fatal("Hellas Anta")
-	
 	ts := newTestCase(t)
 	tb := ts.tb
 	samples := ts.samples
@@ -158,8 +188,15 @@ func TestResponse(t *testing.T) {
 	tb.Mux.HandleFunc("/json", jsonHandler)
 	tb.Mux.HandleFunc("/invalidjson", invalidJSONHandler)
 	tb.Mux.HandleFunc("/submitForm", submitFormHandler)
+	tb.Mux.HandleFunc("/submitForm/result/post/b", submitFormPostResultHandler)
+	tb.Mux.HandleFunc("/submitFormPost", submitFormResultHandler)
+	tb.Mux.HandleFunc("/submitForm/result/get/b", submitFormResultHandler)
+	tb.Mux.HandleFunc("/submitForm/result/get/b?custname=get", submitFormResultHandler)
+	tb.Mux.HandleFunc("/submitFormGet", submitFormResultHandler)
+	tb.Mux.HandleFunc("/submitForm/result/getNoAction/b", submitFormResultHandler)
+	tb.Mux.HandleFunc("/submitForm?custname=noAction", submitFormResultHandler)
 
-	t.Run("Html", func(t *testing.T) {	
+	t.Run("Html", func(t *testing.T) {
 		_, err := rt.RunString(sr(`
 			var res = http.request("GET", "HTTPBIN_URL/html");
 			if (res.status != 200) { throw new Error("wrong status: " + res.status); }
@@ -343,6 +380,7 @@ func TestResponse(t *testing.T) {
 		})
 
 		t.Run("withFormSelector", func(t *testing.T) {
+
 			_, err := rt.RunString(sr(`
 				var res = http.request("GET", "HTTPBIN_URL/forms/post");
 				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
@@ -388,15 +426,108 @@ func TestResponse(t *testing.T) {
 			require.NoError(t, err)
 			assertRequestMetricsEmitted(t, metrics.GetBufferedSamples(samples), "GET", sr("HTTPBIN_URL/myforms/get"), 200, "")
 		})
-		
-		t.Run("pejSubmitFormPost", func(t *testing.T) {
+
+		t.Run("submitFormActionPost", func(t *testing.T) {
 			_, err := rt.RunString(sr(`
 				var res = http.request("GET", "HTTPBIN_URL/submitForm");
 				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
-				res.submitForm({ formSelector: "[id=\"submitFormActionPost\"]", submitSelector: "[value="b"]" })
+				res = res.submitForm({ formSelector: '[id="submitFormActionPost"]', submitSelector: '[value="a"]' })
+				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
+				if (res.url != "HTTPBIN_URL/submitForm/result/post/a") { throw new Error("wrong formaction " + res.url); }
+				if( res.request.body != "custname=post" ) { throw new Error("wrong body " + res.body); }
 			`))
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), sr("no form found for selector '#doesNotExist' in response 'HTTPBIN_URL/forms/post'"))
+			require.NoError(t, err)
+		})
+
+		t.Run("submitFormActionPostNoOverride", func(t *testing.T) {
+			_, err := rt.RunString(sr(`
+				var res = http.request("GET", "HTTPBIN_URL/submitForm");
+				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
+				res = res.submitForm({ formSelector: '[id="submitFormActionPost"]', submitSelector: '[value="noFormAction"]' })
+				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
+				if (res.url != "HTTPBIN_URL/submitFormPost") { throw new Error("wrong formaction " + res.url); }
+				if( res.request.body != "custname=post" ) { throw new Error("wrong body " + res.body); }
+			`))
+			require.NoError(t, err)
+		})
+
+		t.Run("submitFormActionPostMethodOverride", func(t *testing.T) {
+			_, err := rt.RunString(sr(`
+				var res = http.request("GET", "HTTPBIN_URL/submitForm");
+				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
+				res = res.submitForm({ formSelector: '[id="submitFormActionPost"]', submitSelector: '[value="b"]' })
+				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
+				if (res.url != "HTTPBIN_URL/submitForm/result/get/b?custname=get") { throw new Error("wrong formaction " + res.url); }
+			`))
+			require.NoError(t, err)
+		})
+
+		t.Run("submitFormActionGet", func(t *testing.T) {
+			_, err := rt.RunString(sr(`
+				var res = http.request("GET", "HTTPBIN_URL/submitForm");
+				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
+				res = res.submitForm({ formSelector: '[id="submitFormActionGet"]', submitSelector: '[value="a"]' })
+				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
+				if (res.url != "HTTPBIN_URL/submitForm/result/get/a?custname=get") { throw new Error("wrong formaction " + res.url); }
+			`))
+			require.NoError(t, err)
+		})
+
+		t.Run("submitFormActionGetNoOverride", func(t *testing.T) {
+			_, err := rt.RunString(sr(`
+				var res = http.request("GET", "HTTPBIN_URL/submitForm");
+				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
+				res = res.submitForm({ formSelector: '[id="submitFormActionGet"]', submitSelector: '[value="noFormAction"]' })
+				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
+				if (res.url != "HTTPBIN_URL/submitFormGet?custname=get") { throw new Error("wrong formaction " + res.url); }
+			`))
+			require.NoError(t, err)
+		})
+
+		t.Run("submitFormActionGetMethodOverride", func(t *testing.T) {
+			_, err := rt.RunString(sr(`
+				var res = http.request("GET", "HTTPBIN_URL/submitForm");
+				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
+				res = res.submitForm({ formSelector: '[id="submitFormActionGet"]', submitSelector: '[value="b"]' })
+				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
+				if (res.url != "HTTPBIN_URL/submitForm/result/post/b") { throw new Error("wrong formaction " + res.url); }
+				if( res.request.body != "custname=get" ) { throw new Error("wrong body " + res.body); }
+			`))
+			require.NoError(t, err)
+		})
+
+		t.Run("submitFormNoAction", func(t *testing.T) {
+			_, err := rt.RunString(sr(`
+				var res = http.request("GET", "HTTPBIN_URL/submitForm");
+				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
+				res = res.submitForm({ formSelector: '[id="submitFormNoAction"]', submitSelector: '[value="b"]' })
+				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
+				if (res.url != "HTTPBIN_URL/submitForm/result/getNoAction/b?custname=noAction") { throw new Error("wrong formaction " + res.url); }
+			`))
+			require.NoError(t, err)
+		})
+
+		t.Run("submitFormNoActionNoOverride", func(t *testing.T) {
+			_, err := rt.RunString(sr(`
+				var res = http.request("GET", "HTTPBIN_URL/submitForm");
+				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
+				res = res.submitForm({ formSelector: '[id="submitFormNoAction"]', submitSelector: '[value="noFormAction"]' })
+				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
+				if (res.url != "HTTPBIN_URL/submitForm?custname=noAction") { throw new Error("wrong formaction " + res.url); }
+			`))
+			require.NoError(t, err)
+		})
+
+		t.Run("submitFormActionGetMethodOverride", func(t *testing.T) {
+			_, err := rt.RunString(sr(`
+				var res = http.request("GET", "HTTPBIN_URL/submitForm");
+				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
+				res = res.submitForm({ formSelector: '[id="submitFormNoAction"]', submitSelector: '[value="b"]' })
+				if (res.status != 200) { throw new Error("wrong status: " + res.status); }
+				if (res.url != "HTTPBIN_URL/submitForm") { throw new Error("wrong formaction " + res.url); }
+				if( res.request.body != "custname=noAction" ) { throw new Error("wrong body " + res.body); }
+			`))
+			require.NoError(t, err)
 		})
 	})
 
