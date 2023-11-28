@@ -1,5 +1,7 @@
 name: "Auto assign maintainer to issue"
 on:
+  # makes this workflow re-usable
+  workflow_call:
   issues:
     types: [opened]
 
@@ -13,7 +15,7 @@ jobs:
       - uses: actions/github-script@v6
         with:
           script: |
-            const assignees = ['mstoykov', 'codebien', 'olegbespalov', 'oleiade'];
+            const assignees = ['mstoykov', 'codebien', 'olegbespalov', 'oleiade', 'joanlopez'];
             const assigneeCount = 1;
 
             // Do not automatically assign users if someone was already assigned or it was opened by a maintainer
@@ -37,4 +39,10 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               assignees: getNRandom(assigneeCount, assignees),
+            });
+            github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ["triage"]
             });

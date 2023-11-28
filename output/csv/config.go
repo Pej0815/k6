@@ -75,22 +75,15 @@ func ParseArg(arg string, logger logrus.FieldLogger) (Config, error) {
 			return c, fmt.Errorf("couldn't parse %q as argument for csv output", arg)
 		}
 		switch r[0] {
-		case "save_interval":
-			logger.Warnf("CSV output argument '%s' is deprecated, please use 'saveInterval' instead.", r[0])
-			fallthrough
 		case "saveInterval":
 			err := c.SaveInterval.UnmarshalText([]byte(r[1]))
 			if err != nil {
 				return c, err
 			}
-		case "file_name":
-			logger.Warnf("CSV output argument '%s' is deprecated, please use 'fileName' instead.", r[0])
-			fallthrough
 		case "fileName":
 			c.FileName = null.StringFrom(r[1])
 		case "timeFormat":
 			c.TimeFormat = null.StringFrom(r[1])
-
 		default:
 			return c, fmt.Errorf("unknown key %q as argument for csv output", r[0])
 		}
